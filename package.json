@@ -1,0 +1,23 @@
+{
+  "name": "conference_bookings",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "snyk test"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "body-parser": "^1.18.3",
+    "debug": "^4.0.1",
+    "express": "^4.16.3",
+    "mongoose": "^5.2.17",
+    "morgan": "^1.9.1",
+    "nodejs-websocket": "^1.7.1",
+    "watson-developer-cloud": "^3.10.0"
+  },
+  "devDependencies": {
+    "winston": "^3.1.0"
+  }
+}

@@ -1,0 +1,8 @@
+.DS_Store
+ssl
+node_modules
+logs/*
+config/*
+npm-debug.log
+package-lock.json
+config.js
