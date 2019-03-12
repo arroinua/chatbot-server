@@ -1,91 +1,126 @@
 const debug = require('debug')('booking');
-const bookings = require('./bookings');
-const middlewares = require('./middlewares');
-const AssistantV1 = require('watson-developer-cloud/assistant/v1');
-const config = require('./config')
-const service = new AssistantV1({
-  username: config.assistant.username,
-  password: config.assistant.password,
-  version: config.assistant.version
-});
-const workspace_id = config.assistant.workspace_id;
+const conf = require('./config')
+const request = require('request');
+const each = require('async/each');
 
-module.exports = { processMessage };
+module.exports = { fetchApi, sendMessageToUsers, sendMessage };
 
 // // Start conversation with empty message.
 // service.message({
 //   workspace_id: workspace_id
 // }, processResponse);
 
-function processMessage(message, callback) {
-    debug('processMessage:', message);
-
-    sendToAssistant(message)
-    .then(dispatchAction)
-    .then(params => {
-        debug('processResponse result: ', params);
-        if(params.context && params.context.skip_user_input) { 
-            processMessage(params, callback) 
-        } else {
-            return middlewares.updateContext(params)
-            .then(result => callback(null, result))
-            .catch(callback);
-        }
-    })
-    .catch(callback)
-}
-
-function sendToAssistant(message) {
+function fetchApi(method, params) {
+    debug('fetchApi: ', method, params);
     return new Promise((resolve, reject) => {
-        debug('sendToAssistant: ', message);
-        const params = {
-            input: { text: message.text },
-            workspace_id: workspace_id
-        };
-        if(message.context) params.context = message.context;
         
-        service.message(params, function(err, response) {
+        let reqParams = {
+            url: ('https://'+conf.server_domain),
+            method: "POST",
+            auth: {
+                user: conf.client_login,
+                pass: conf.client_password,
+                sendImmediately: true
+            },
+            body: {
+                method: method
+            },
+            json: true
+        };
+
+        if(params) reqParams.body.params = params;
+
+        request(reqParams, function(err, response, body) {
             if(err) return reject(err);
-            resolve(response)
-        })
+            debug('fetchApi result: ', method, body.result);
+            resolve(body.result);
+        });
+
     });
 }
 
-// Process the service response.
-// function processResponse(response) {
- 
-//     return new Promise((resolve, reject) => {
+function sendMessageToUsers(users, message) {
+    debug('sendMessageToUsers: ', users, message);
+    return new Promise((resolve, reject) => {
+        let userIds = [];
+        let activeSessions = [];
+        let sessionsToCreate = [];
 
-//         debug('processResponse: ', response);
-//         let intent, text, action = null, context = response.context;
+        fetchApi('getExtensions')
+        .then(result => {
+            userIds = result.reduce((ids, item) => {
+                if(users.indexOf(item.name) !== -1) ids.push(item.userid);
+                return ids;
+            }, []);
+            debug('notifyUsers userIds: ', userIds);
+            return fetchApi('getSessions');
+            
+        })
+        .then(result => {
+            debug('getSessions: ', result);
+            result.forEach(item => {
+                if(item.parties.length === 2) {
+                    let userId = item.parties.splice(item.parties.indexOf(conf.client_login))[0];
+                    activeSessions = (userIds.indexOf(userId) !== -1) ? activeSessions.concat([item.id]) : activeSessions;
+                    userIds = userIds.splice(userId, 1);
+                }
+            });
+            resolve()
+        })
+        .then(result => {
+            debug('sendMessageToUsers userIds', userIds);
+            debug('sendMessageToUsers activeSessions', activeSessions);
+            if(userIds.length) {
+                each(userIds, (id, cb) => {
+                    createSession({
+                        parties: [id]
+                    })
+                    .then(result => {
+                        activeSessions = activeSessions.concat([result.id]);
+                        debug('createSession result: ', result.id, activeSessions)
 
-//       // If an intent was detected, log it out to the console.
-//         if (response.intents.length > 0) {
-//             debug('Detected intent: #', response.intents[0].intent);
-//             intent = response.intents[0].intent;
-//         }
+                        cb();
+                    })
+                    .catch(err => {
+                        debug('createSession err', err);
+                        cb(err)
+                    })
 
-//         if (response.actions && response.actions.length > 0) {
-//             debug('Detected actions: #', response.actions[0]);
-//             action = response.actions[0];
-//         }
+                }, err => {
+                    // debug('createSessions error: ', err);
+                    if(err) return reject(err);
+                    resolve();
+                });
+            } else {
+                resolve();
+            }
+        })
+        .then(result => {
+            debug('send message to activeSessions: ', activeSessions);
+            each(activeSessions, (id, cb) => {
+                sendMessage(id, message)
+                .then(() => cb())
+                .catch(cb);
+            }, err => {
+                if(err) return reject(err);
+                resolve();
+            });
+        })
+        .catch(reject)
+    });
+}
 
-//       // Display the output from dialog, if any.
-//         if (response.output.text.length != 0) {
-//             debug('Detected outputs: ', response.output.text[0]);
-//             text = response.output.text[0];
-//         }
+function createSession(params) {
+    return fetchApi('createSession', {
+        parties: params.parties,
+        status: 0
+    });
+}
 
-//         resolve(response);
-//         // resolve({ intent, text, context, action });
-
-//     });
-
-// }
-
-function dispatchAction(params) {
-    debug('responseFromAssistant: ', params)
-    if(!params.actions || !params.actions.length) return Promise.resolve(params);
-    return bookings.dispatch(params.actions[0].name, params);
-
+function sendMessage(sessionid, message) {
+    return fetchApi('sendMessage', {
+        sessionid: sessionid,
+        type: 1,
+        content: message
+    });
 }

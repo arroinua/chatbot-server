@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const controllers = require('./controllers');
+// const controllers = require('./controllers');
 const debug = require('debug')('booking');
 const middlewares = require('./middlewares');
 const Context = require('./models').Context;
@@ -16,7 +16,7 @@ router.post('/', function(req, res, next) {
     .then(middlewares.getContext)
     .then(middlewares.getBotInfo)
     .then(function(params) {
-        services.processMessage(params, function(err, result) {
+        middlewares.processMessage(params, function(err, result) {
             debug('processMessage result: ', err, result);
             if(err) return next(err);
             res.json({

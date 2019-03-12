@@ -16,7 +16,8 @@ const Context = new Schema({
 	end: String,
 	collisions: String,
 	booking_id: String,
-	booking_index: String
+	booking_index: String,
+	mentions: Array
 });
 
 const Booking = new Schema({
@@ -24,8 +25,13 @@ const Booking = new Schema({
 	end: Number,
 	user_id: String,
 	user_name: String,
+	mentions: Array,
 	canceled: { type: Boolean, default: false }
 });
+
+Booking.statics.findAndModify = function (query, sort, doc, options, callback) {
+  return this.collection.findAndModify(query, sort, doc, options, callback);
+};
 
 const models = {
 	Context: mongoose.model('Context', Context),

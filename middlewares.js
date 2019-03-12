@@ -1,8 +1,17 @@
 const debug = require('debug')('booking');
 const Context = require('./models').Context;
-const request = require('request');
 const conf = require('./config');
 const utils = require('./utils');
+const fetchApi = require('./services').fetchApi;
+const bookings = require('./bookings');
+const AssistantV1 = require('watson-developer-cloud/assistant/v1');
+const config = require('./config')
+const aiService = new AssistantV1({
+  username: config.assistant.username,
+  password: config.assistant.password,
+  version: config.assistant.version
+});
+const workspace_id = config.assistant.workspace_id;
 
 module.exports = { 
 	validateMessage,
@@ -10,7 +19,10 @@ module.exports = {
 	updateContext, 
 	normalizeMessageParams, 
 	getSessionStatus, 
-	getBotInfo 
+	getBotInfo,
+	processMessage,
+	sendToAssistant,
+	dispatchAction
 };
 
 function normalizeMessageParams(message) {
@@ -22,7 +34,7 @@ function normalizeMessageParams(message) {
 				sessionid: params.sessionid,
 				user_id: params.orig
 			},
-			text: params.content
+			text: params.content.trim()
 		};
 
 		if(params.from) resultParams.context.user_name = params.from;
@@ -41,28 +53,14 @@ function getSessionStatus(params) {
 		
 		if(resultParams.context.session_status !== undefined) resolve(resultParams);
 
-		request({
-			url: ('https://'+conf.server_domain),
-			method: "POST",
-			auth: {
-				user: conf.client_login,
-				pass: conf.client_password,
-				sendImmediately: true
-			},
-			body: {
-				method: "getSession",
-				params: {
-					sessionid: resultParams.context.sessionid
-				}
-			},
-			json: true
-		}, function(err, response, body) {
-			debug('getSessionParams response: ', err, body);
-			if(err) return reject(err);
-			resultParams.context.session_status = body.result.status;
+		fetchApi('getSession', {
+			sessionid: resultParams.context.sessionid
+		})
+		.then(result => {
+			resultParams.context.session_status = result.status;
 			resolve(resultParams);
-		});
-
+		})
+		.catch(reject);
 	});
 }
 
@@ -116,12 +114,12 @@ function getBotInfo(params) {
 
 	return new Promise((resolve, reject) => {
 			
-		debug('getBotInfo params: ', resultParams);
+		debug('getBotInfo fetch params: ', resultParams);
 		if(resultParams.context.bot_id && resultParams.context.bot_name) return resolve(resultParams);
 
-		getProfile({ user_id: conf.client_login })
+		fetchApi('getProfile', { user_id: conf.client_login })
 		.then(result => {
-			debug('getBotInfo result: ', result);
+			debug('getBotInfo fetch result: ', result);
 			resultParams.context.bot_id = result.userid;
 			resultParams.context.bot_name = result.name;
 			resolve(resultParams);
@@ -131,33 +129,43 @@ function getBotInfo(params) {
     });
 }
 
-function getProfile(params) {
+function processMessage(message, callback) {
+    debug('processMessage:', message);
 
-	return new Promise((resolve, reject) => {
-		
-		debug('getProfile: ', params, conf);
+    sendToAssistant(message)
+    .then(dispatchAction)
+    .then(params => {
+        debug('processResponse result: ', params);
+        if(params.context && params.context.skip_user_input) { 
+            processMessage(params, callback) 
+        } else {
+            return updateContext(params)
+            .then(result => callback(null, result))
+            .catch(callback);
+        }
+    })
+    .catch(callback)
+}
 
-		request({
-			url: ('https://'+conf.server_domain),
-			method: "POST",
-			auth: {
-				user: conf.client_login,
-				pass: conf.client_password,
-				sendImmediately: true
-			},
-			body: {
-				method: "getProfile"
-				// method: "getUserInfo",
-				// params: {
-				// 	userid: params.user_id
-				// },
-			},
-			json: true
-		}, function(err, response, body) {
-			debug('getProfile response: ', err, body);
-			if(err) return reject(err);
-			resolve(body.result);
-		});        
+function sendToAssistant(message) {
+    return new Promise((resolve, reject) => {
+        debug('sendToAssistant: ', message);
+        const params = {
+            input: { text: message.text },
+            workspace_id: workspace_id
+        };
+        if(message.context) params.context = message.context;
         
+        aiService.message(params, function(err, response) {
+            if(err) return reject(err);
+            resolve(response)
+        })
     });
+}
+
+function dispatchAction(params) {
+    debug('responseFromAssistant: ', params)
+    if(!params.actions || !params.actions.length) return Promise.resolve(params);
+    return bookings.dispatch(params.actions[0].name, params);
+
 }

@@ -1,4 +1,7 @@
 const debug = require('debug')('booking');
+const fetchApi = require('./services').fetchApi;
+const sendMessageToUsers = require('./services').sendMessageToUsers;
+const utils = require('./utils');
 const Booking = require('./models').Booking;
 const actions = {
 	"GetActiveBookingByIndex": getActiveBookingByIndex,
@@ -6,9 +9,9 @@ const actions = {
 	"GetActiveUserBookings": getActiveUserBookings,
 	"CheckCollisions": checkCollisions,
 	"GetFreeSlots": getFreeSlots,
-	"CancelBooking": cancelBooking
+	"CancelBooking": cancelBooking,
+	"NotifyUsers": notifyUsers
 };
-const utils = require('./utils');
 
 module.exports = {dispatch};
 
@@ -58,6 +61,8 @@ function createBookings(params){
 		    user_name: resultParams.context.user_name
 		};
 
+		if(resultParams.context.mentions) query.mentions = resultParams.context.mentions;
+
 		checkCollisions(resultParams)
 		.then(result => {
 			if(result.context.collisions && result.context.collisions.length) return resolve(result);
@@ -77,7 +82,8 @@ function getActiveUserBookings(params){
 	debug('getUserBookings: ', params);
 	const resultParams = Object.assign({}, params);
 	const actionParams = resultParams.actions[0].parameters;
-	const begin = resultParams.context.date ? new Date(resultParams.context.date).valueOf() : Date.now();
+	const begin = (resultParams.context.date && new Date(resultParams.context.date).valueOf() > Date.now())
+				? new Date(resultParams.context.date).valueOf() : Date.now();
 	const query = { user_id: resultParams.context.user_id, begin: { $gt: begin }, canceled: false };
 
 	if(resultParams.context.date) query.end = { $lte: new Date(resultParams.context.date).setHours(23,59,59,999) };
@@ -105,20 +111,22 @@ function getActiveUserBookings(params){
 function cancelBooking(params){
 	debug('cancelBooking: ', params);
 	const resultParams = Object.assign({}, params);
+	let promise;
 	
 	return new Promise((resolve, reject) => {
 
-		// getActiveUserBookings(resultParams)
-		// .then(result => {
 		const id = resultParams.context.booking_id;
 		
-		if(!id) {
+		if(id >= 0) {
+			promise = Booking.findOneAndUpdate({ _id: id, user_id: resultParams.context.user_id }, { canceled: true });
+		// } else if(id === 0) {
+		// 	promise = Booking.findAndModify({ _id: id, user_id: resultParams.context.user_id }, { canceled: true })
+		} else {
 			resultParams.context.booking_canceled = false;
 			return resolve(resultParams);
 		}
 
-		Booking.findOneAndUpdate({ _id: id, user_id: resultParams.context.user_id }, { canceled: true })
-		// })
+		promise
 		.then(result => {
 			resultParams.context.booking_canceled = !!result;
 			resolve(resultParams);
@@ -134,6 +142,7 @@ function checkCollisions(params) {
 	const begin = new Date(actionParams.date+" "+actionParams.begin).valueOf();
 	const end = new Date(actionParams.date+" "+actionParams.end).valueOf();
 	const query = {
+		canceled: false,
 	    $or: [
 			{ $and: [{ begin: { $lte: begin }}, { end: { $gt: begin } }] },
 			{ $and: [{ begin: { $gte: begin }}, { begin: { $lt: end } }] }
@@ -195,5 +204,22 @@ function getFreeSlots(params) {
 		})
 		.catch(reject);
 
+	});
+}
+
+function notifyUsers(params) {
+	debug('notifyUsers fetchApi: ', fetchApi);
+	return new Promise((resolve, reject) => {
+		const resultParams = Object.assign({}, params); 
+		let users = resultParams.context.mentions.map(item => item.replace('@', '') );
+		users = users.splice(users.indexOf(resultParams.context.bot_id));
+		const message = ('Hi, '+resultParams.context.user_name+' created a mmeeting with you on '+resultParams.context.date+' from '+resultParams.context.begin+' to '+resultParams.context.end);
+		sendMessageToUsers(users, message)
+		.then(result => {
+			resultParams.context.notified = true;
+            resolve(resultParams)
+		})
+		.catch(reject);
+		
 	});
 }

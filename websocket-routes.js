@@ -10,7 +10,7 @@ module.exports = { router };
 function router(str, conn) {
 	debug('websocketRouter str: ', str);
 	
-	const message = JSON.parse(str);	
+	const message = JSON.parse(str);
 	
 	debug('websocketRouter: ', message)
 
@@ -24,7 +24,7 @@ function router(str, conn) {
 	.then(middlewares.validateMessage)
     // .then(getUserName)
     .then(function(params) {
-		 services.processMessage(params, function(err, result) {
+		 middlewares.processMessage(params, function(err, result) {
 		 	debug('websocketRouter result:', err, result);
 		 	if(err) return logger.error(err);
 
