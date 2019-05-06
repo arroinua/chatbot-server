@@ -4,11 +4,17 @@ const websocketRouter = require('./websocket-routes').router;
 let websocketTry = 1;
 let pingInterval = null;
 let pingIntervalValue = (5*60*1000);
+let state = 0;
 let conn = null;
 
-module.exports = { connect: connect, sendText: sendText };
+module.exports = { connect: connect, sendText: sendText, connection: conn };
 
 function connect(params) {
+
+    if(state) return; // return if socket is in connecting or connected state
+    
+    state = 1;
+
     conn = ws.connect('wss://'+params.server_domain, {
         extraHeaders: {     
             Authorization: 'Basic ' + new Buffer(params.client_login+':'+params.client_password).toString('base64')
@@ -18,14 +24,13 @@ function connect(params) {
 
     conn.on('connect',function(){
         debug('Websocket connected: ');
+        if(state === 2) return;
+        state = 2;
         websocketTry = 1;
         clearInterval(pingInterval);
         pingInterval = setInterval(function() {
             sendPing(conn);
         }, pingIntervalValue);
-        // conn.sendText(JSON.stringify({
-        //     method: "getUserInfo", params: { userid: "ringotel101" }, id: 1
-        // }));
     })
 
     conn.on('error',function(err){
@@ -35,6 +40,8 @@ function connect(params) {
 
     conn.on('close',function(code, reason){
         debug('Websocket close: ', code, reason);
+        state = 0;
+        clearInterval(pingInterval);
         const time = generateInterval(websocketTry);
         setTimeout(function(){
             websocketTry++;
@@ -47,7 +54,7 @@ function connect(params) {
     });
 
     conn.on('pong', function(data) {
-            debug('pong', data  );
+        debug('pong', data  );
     });
 
 }

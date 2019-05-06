@@ -8,11 +8,11 @@ const conf = require('./config');
 module.exports = { router };
 
 function router(str, conn) {
-	debug('websocketRouter str: ', str);
+	// debug('websocketRouter str: ', str);
 	
 	const message = JSON.parse(str);
 	
-	debug('websocketRouter: ', message)
+	// debug('websocketRouter: ', message)
 
 	if(!message.method || message.method !== 'message') return;
 	if(message.params.orig === conf.client_login) return;
@@ -25,7 +25,7 @@ function router(str, conn) {
     // .then(getUserName)
     .then(function(params) {
 		 middlewares.processMessage(params, function(err, result) {
-		 	debug('websocketRouter result:', err, result);
+		 	// debug('websocketRouter result:', err, result);
 		 	if(err) return logger.error(err);
 
 		 	let responseMessage = {
@@ -36,9 +36,10 @@ function router(str, conn) {
 		 		}
 		 	};
 
-		 	debug('websocketRouter responseMessage: ', responseMessage);
+		 	// debug('websocketRouter responseMessage: ', responseMessage);
 
-		 	if(result.output.text && result.output.text.length) conn.sendText(JSON.stringify(responseMessage));
+		 	// if(result.output.text && result.output.text.length) conn.sendText(JSON.stringify(responseMessage));
+		 	if(result.output.text && result.output.text.length) websocketModule.connection.sendText(JSON.stringify(responseMessage));
 		 })
     })
     .catch(err => {

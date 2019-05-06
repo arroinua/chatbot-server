@@ -5,6 +5,7 @@ const debug = require('debug')('booking');
 const middlewares = require('./middlewares');
 const Context = require('./models').Context;
 const services = require('./services')
+const websocketModule = require('./websocket');
 
 module.exports = router;
 
